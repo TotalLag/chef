@@ -4,26 +4,30 @@ import type { ModelSelection } from '~/utils/constants';
 import React from 'react';
 import { Tooltip } from '@ui/Tooltip';
 import { HandThumbUpIcon, KeyIcon } from '@heroicons/react/24/outline';
-import { useQuery } from 'convex/react';
+import { useAction, useQuery } from 'convex/react';
 import { api } from '@convex/_generated/api';
 import type { Doc } from '@convex/_generated/dataModel';
 import { captureMessage } from '@sentry/remix';
 import { useLaunchDarkly } from '~/lib/hooks/useLaunchDarkly';
+import type { ProviderType } from '~/lib/common/annotations';
+import { useEffect, useState } from 'react';
 
-export type ModelProvider = 'openai' | 'google' | 'xai' | 'anthropic' | 'auto';
-
-export function displayModelProviderName(provider: ModelProvider) {
+export function displayModelProviderName(provider: ProviderType) {
   switch (provider) {
-    case 'openai':
+    case 'OpenAI':
       return 'OpenAI';
-    case 'google':
+    case 'Google':
       return 'Google';
-    case 'xai':
+    case 'XAI':
       return 'xAI';
-    case 'anthropic':
+    case 'Anthropic':
       return 'Anthropic';
-    case 'auto':
-      return 'Anthropic';
+    case 'OpenRouter':
+      return 'OpenRouter';
+    case 'Bedrock':
+      return 'Bedrock';
+    case 'Unknown':
+      return 'Unknown';
     default: {
       const exhaustiveCheck: never = provider;
       throw new Error(`Unknown model provider: ${exhaustiveCheck}`);
@@ -43,10 +47,18 @@ export interface ModelSelectorProps {
 
 const providerToIcon: Record<string, React.ReactNode> = {
   auto: <MagicWandIcon />,
-  openai: svgIcon('/icons/openai.svg'),
-  anthropic: svgIcon('/icons/claude.svg'),
-  google: svgIcon('/icons/gemini.svg'),
-  xai: (
+  OpenAI: svgIcon('/icons/openai.svg'),
+  OpenRouter: (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path
+        d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0ZM4.5 4.5a.5.5 0 0 1 .5-.5h6a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-6a.5.5 0 0 1-.5-.5v-1ZM11.5 10.5a.5.5 0 0 1-.5.5h-6a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h6a.5.5 0 0 1 .5.5v1Z"
+        fill="currentColor"
+      />
+    </svg>
+  ),
+  Anthropic: svgIcon('/icons/claude.svg'),
+  Google: svgIcon('/icons/gemini.svg'),
+  XAI: (
     <svg width="16" height="16" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path
         d="M395.479 633.828L735.91 381.105C752.599 368.715 776.454 373.548 784.406 392.792C826.26 494.285 807.561 616.253 724.288 699.996C641.016 783.739 525.151 802.104 419.247 760.277L303.556 814.143C469.49 928.202 670.987 899.995 796.901 773.282C896.776 672.843 927.708 535.937 898.785 412.476L899.047 412.739C857.105 231.37 909.358 158.874 1016.4 10.6326C1018.93 7.11771 1021.47 3.60279 1024 0L883.144 141.651V141.212L395.392 633.916"
@@ -65,48 +77,57 @@ export const models: Partial<
     ModelSelection,
     {
       name: string;
+      modelId: string;
       recommended?: boolean;
       requireKey?: boolean;
-      provider: ModelProvider;
+      provider: ProviderType;
     }
   >
 > = {
   auto: {
     name: 'Auto',
+    modelId: 'auto',
     recommended: true,
-    provider: 'auto',
+    provider: 'Anthropic', // auto is currently Anthropic
   },
   'claude-4-sonnet': {
     name: 'Claude 4 Sonnet',
-    provider: 'anthropic',
+    modelId: 'claude-4-sonnet',
+    provider: 'Anthropic',
     recommended: true,
     requireKey: false,
   },
   'gemini-2.5-pro': {
     name: 'Gemini 2.5 Pro',
+    modelId: 'gemini-2.5-pro',
     recommended: false,
-    provider: 'google',
+    provider: 'Google',
   },
   'gpt-4.1': {
     name: 'GPT-4.1',
-    provider: 'openai',
+    modelId: 'gpt-4.1',
+    provider: 'OpenAI',
   },
   'gpt-5': {
     name: 'GPT-5',
-    provider: 'openai',
+    modelId: 'gpt-5',
+    provider: 'OpenAI',
   },
   'grok-3-mini': {
     name: 'Grok 3 Mini',
-    provider: 'xai',
+    modelId: 'grok-3-mini',
+    provider: 'XAI',
   },
   'claude-3-5-haiku': {
     name: 'Claude 3.5 Haiku',
-    provider: 'anthropic',
+    modelId: 'claude-3-5-haiku',
+    provider: 'Anthropic',
     requireKey: true,
   },
   'gpt-4.1-mini': {
     name: 'GPT-4.1 Mini',
-    provider: 'openai',
+    modelId: 'gpt-4.1-mini',
+    provider: 'OpenAI',
     requireKey: true,
   },
 } as const;
@@ -117,14 +138,60 @@ export const ModelSelector = React.memo(function ModelSelector({
   size = 'md',
 }: ModelSelectorProps) {
   const apiKey = useQuery(api.apiKeys.apiKeyForCurrentMember);
-  const selectedModel = models[modelSelection];
+  const listOpenRouterModels = useAction(api.openrouter.listModels);
+  const [openRouterModels, setOpenRouterModels] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    const fetchOpenRouterModels = async () => {
+      if (apiKey?.openrouter) {
+        setIsLoading(true);
+        try {
+          const models = await listOpenRouterModels({ apiKey: apiKey.openrouter });
+          setOpenRouterModels(models);
+        } catch (error) {
+          console.error("Failed to fetch OpenRouter models:", error);
+        } finally {
+          setIsLoading(false);
+        }
+      }
+    };
+    fetchOpenRouterModels();
+  }, [apiKey?.openrouter, listOpenRouterModels]);
+
+  const dynamicModels = useMemo(() => {
+    const allModels = { ...models };
+    const sortedOpenRouterModels = [...openRouterModels].sort((a, b) => {
+      const aIsGpt5 = a.id.includes('gpt-5');
+      const bIsGpt5 = b.id.includes('gpt-5');
+      if (aIsGpt5 && !bIsGpt5) return -1;
+      if (!aIsGpt5 && bIsGpt5) return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    sortedOpenRouterModels.forEach((model: any) => {
+      allModels[model.id] = {
+        name: model.name,
+        modelId: model.id,
+        provider: 'OpenRouter',
+        requireKey: true,
+        recommended: model.id.includes('gpt-5'),
+      };
+    });
+    return allModels;
+  }, [openRouterModels]);
+
+  const selectedModel = dynamicModels[modelSelection];
   const { useGeminiAuto, enableGpt5 } = useLaunchDarkly();
   if (!selectedModel) {
     captureMessage(`Model ${modelSelection} not found`);
-    setModelSelection('auto');
+    // Don't reset to auto if the models are just loading
+    if (!isLoading) {
+      setModelSelection('auto');
+    }
   }
 
-  const availableModels = Object.entries(models).filter(([key]) => {
+  const availableModels = Object.entries(dynamicModels).filter(([key]) => {
     if (key === 'gpt-5') {
       return enableGpt5;
     }
@@ -133,6 +200,7 @@ export const ModelSelector = React.memo(function ModelSelector({
 
   return (
     <Combobox
+      isLoading={isLoading}
       searchPlaceholder="Search models..."
       label="Select model"
       options={availableModels.map(([value, model]) => ({
@@ -193,16 +261,21 @@ export const ModelSelector = React.memo(function ModelSelector({
   );
 });
 
-const keyForProvider = (apiKeys: Doc<'convexMembers'>['apiKey'], provider: ModelProvider, useGeminiAuto: boolean) => {
-  if (provider === 'anthropic') {
+const keyForProvider = (apiKeys: Doc<'convexMembers'>['apiKey'], provider: ProviderType, useGeminiAuto: boolean) => {
+  if (provider === 'Anthropic') {
     return apiKeys?.value;
   }
-  if (provider === 'auto') {
-    if (useGeminiAuto) {
-      return apiKeys?.google;
-    } else {
-      return apiKeys?.value;
-    }
+  if (provider === 'Google') {
+    return apiKeys?.google;
   }
-  return apiKeys?.[provider];
+  if (provider === 'OpenAI') {
+    return apiKeys?.openai;
+  }
+  if (provider === 'OpenRouter') {
+    return apiKeys?.openrouter;
+  }
+  if (provider === 'XAI') {
+    return apiKeys?.xai;
+  }
+  return undefined;
 };

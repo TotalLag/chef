@@ -61,6 +61,11 @@ export function ApiKeyCard() {
     });
   };
 
+  const validateOpenRouterApiKey = async (_apiKey: string) => {
+    // TODO: Implement actual validation if OpenRouter provides an endpoint for it.
+    return true;
+  };
+
   return (
     <div className="rounded-lg border bg-bolt-elements-background-depth-1 shadow-sm">
       <div className="p-6">
@@ -150,13 +155,31 @@ export function ApiKeyCard() {
             value={apiKey?.xai || ''}
             onValidate={validateXaiApiKey}
           />
+
+          <ApiKeyItem
+            label="OpenRouter API key"
+            description={
+              <a
+                href="https://openrouter.ai/keys"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-content-link hover:underline"
+              >
+                See instructions for generating an OpenRouter API key
+              </a>
+            }
+            isLoading={apiKey === undefined}
+            keyType="openrouter"
+            value={apiKey?.openrouter || ''}
+            onValidate={validateOpenRouterApiKey}
+          />
         </div>
       </div>
     </div>
   );
 }
 
-type KeyType = 'anthropic' | 'google' | 'openai' | 'xai';
+type KeyType = 'anthropic' | 'google' | 'openai' | 'xai' | 'openrouter';
 
 function ApiKeyItem({
   label,
@@ -237,6 +260,10 @@ function ApiKeyItem({
           await convex.mutation(api.apiKeys.deleteOpenaiApiKeyForCurrentMember);
           toast.success('OpenAI API key removed', { id: 'openai-removed' });
           break;
+        case 'openrouter':
+          await convex.mutation(api.apiKeys.deleteOpenRouterApiKeyForCurrentMember);
+          toast.success('OpenRouter API key removed', { id: 'openrouter-removed' });
+          break;
         case 'xai':
           await convex.mutation(api.apiKeys.deleteXaiApiKeyForCurrentMember);
           toast.success('xAI API key removed', { id: 'xai-removed' });
@@ -263,6 +290,7 @@ function ApiKeyItem({
         preference: apiKey?.preference || ('quotaExhausted' as 'always' | 'quotaExhausted'),
         value: apiKey?.value || undefined,
         openai: apiKey?.openai || undefined,
+        openrouter: apiKey?.openrouter || undefined,
         xai: apiKey?.xai || undefined,
         google: apiKey?.google || undefined,
       };
@@ -276,6 +304,9 @@ function ApiKeyItem({
           break;
         case 'openai':
           apiKeyMutation.openai = cleanApiKey(newKeyValue);
+          break;
+        case 'openrouter':
+          apiKeyMutation.openrouter = cleanApiKey(newKeyValue);
           break;
         case 'xai':
           apiKeyMutation.xai = cleanApiKey(newKeyValue);

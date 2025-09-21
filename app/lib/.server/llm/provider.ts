@@ -49,6 +49,8 @@ export function modelForProvider(provider: ModelProvider, modelChoice: string | 
       return getEnv('AMAZON_BEDROCK_MODEL') || 'us.anthropic.claude-3-5-sonnet-20241022-v2:0';
     case 'OpenAI':
       return getEnv('OPENAI_MODEL') || 'gpt-4.1';
+    case 'OpenRouter':
+      return modelChoice || getEnv('OPENROUTER_MODEL') || 'openai/gpt-4o';
     case 'XAI':
       return getEnv('XAI_MODEL') || 'grok-3-mini';
     case 'Google':
@@ -118,6 +120,20 @@ export function getProvider(
             stream_options: { include_usage: true },
           },
         },
+      };
+      break;
+    }
+    case 'OpenRouter': {
+      model = modelForProvider(modelProvider, modelChoice);
+      const openrouter = createOpenAI({
+        apiKey: userApiKey || getEnv('OPENROUTER_API_KEY'),
+        baseURL: 'https://openrouter.ai/api/v1',
+        fetch: userApiKey ? userKeyApiFetch('OpenRouter') : fetch,
+        compatibility: 'strict',
+      });
+      provider = {
+        model: openrouter(model),
+        maxTokens: 24576,
       };
       break;
     }

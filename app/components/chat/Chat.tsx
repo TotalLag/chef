@@ -292,35 +292,18 @@ export const Chat = memo(
         if (!teamSlug) {
           throw new Error('No team slug');
         }
-        let modelProvider: ProviderType;
         const retries = retryState.get();
-        let modelChoice: string | undefined = undefined;
-        if (modelSelection === 'auto') {
+        const selectedModel = models[modelSelection];
+        if (!selectedModel) {
+          throw new Error(`Unknown model: ${modelSelection}`);
+        }
+
+        let modelProvider: ProviderType = selectedModel.provider;
+        let modelChoice: string | undefined = selectedModel.modelId;
+
+        if (modelSelection === 'auto' || modelSelection === 'claude-4-sonnet') {
           const providers: ProviderType[] = anthropicProviders;
           modelProvider = providers[retries.numFailures % providers.length];
-          modelChoice = 'claude-sonnet-4-0';
-        } else if (modelSelection === 'claude-3-5-haiku') {
-          modelProvider = 'Anthropic';
-          modelChoice = 'claude-3-5-haiku-latest';
-        } else if (modelSelection === 'claude-4-sonnet') {
-          const providers: ProviderType[] = anthropicProviders;
-          modelProvider = providers[retries.numFailures % providers.length];
-          modelChoice = 'claude-sonnet-4-0';
-        } else if (modelSelection === 'grok-3-mini') {
-          modelProvider = 'XAI';
-        } else if (modelSelection === 'gemini-2.5-pro') {
-          modelProvider = 'Google';
-        } else if (modelSelection === 'gpt-4.1-mini') {
-          modelProvider = 'OpenAI';
-          modelChoice = 'gpt-4.1-mini';
-        } else if (modelSelection === 'gpt-4.1') {
-          modelProvider = 'OpenAI';
-        } else if (modelSelection === 'gpt-5') {
-          modelProvider = 'OpenAI';
-          modelChoice = 'gpt-5';
-        } else {
-          const _exhaustiveCheck: never = modelSelection;
-          throw new Error(`Unknown model: ${_exhaustiveCheck}`);
         }
         let shouldDisableTools = false;
         if (messages.length > 0 && messages[messages.length - 1].role === 'assistant') {
